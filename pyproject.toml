@@ -14,9 +14,6 @@ dependencies = [
     "numpy>=1.24",
     "pyyaml>=6.0",
     "av>=12",
-    # Every CLI in this repo -- the yam-abc-* entry points below, the scripts/, and the
-    # deploy servers -- parses its arguments with tyro, so it is a base dependency even
-    # though the policy-backend groups below also pull it in for their own trainers.
     "tyro>=1.0.13",
     "i2rt",
 ]
