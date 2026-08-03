@@ -7,7 +7,6 @@ is safe to keep running while normal teleoperation is active.
 
 from __future__ import annotations
 
-import argparse
 import json
 import math
 import select
@@ -17,6 +16,8 @@ import time
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
+
+import tyro
 
 
 CAN_FRAME = struct.Struct("=IB3x8s")
@@ -99,24 +100,23 @@ def open_can_socket(interface: str) -> socket.socket:
     return can_socket
 
 
+@dataclass
+class MonitorCanReplyLatencyArgs:
+    seconds: float = 60.0
+    """capture duration"""
+    interfaces: list[str] = field(default_factory=lambda: list(DEFAULT_INTERFACES))
+    """SocketCAN interfaces to monitor"""
+    out: Path | None = None
+    """optional JSON result file"""
+    include_unknown: bool = False
+    """also report unrecognised CAN IDs (useful for diagnosing a custom bus layout)"""
+
+
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Passively measure YAM CAN reply cadence during teleoperation."
+    args = tyro.cli(
+        MonitorCanReplyLatencyArgs,
+        description="Passively measure YAM CAN reply cadence during teleoperation.",
     )
-    parser.add_argument("--seconds", type=float, default=60.0, help="capture duration (default: 60)")
-    parser.add_argument(
-        "--interfaces",
-        nargs="+",
-        default=list(DEFAULT_INTERFACES),
-        help="SocketCAN interfaces to monitor",
-    )
-    parser.add_argument("--out", type=Path, help="optional JSON result file")
-    parser.add_argument(
-        "--include-unknown",
-        action="store_true",
-        help="also report unrecognised CAN IDs (useful for diagnosing a custom bus layout)",
-    )
-    args = parser.parse_args()
 
     sockets: dict[socket.socket, str] = {}
     for interface in args.interfaces:

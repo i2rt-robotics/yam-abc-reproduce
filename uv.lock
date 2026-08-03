@@ -6972,6 +6972,7 @@ dependencies = [
     { name = "i2rt" },
     { name = "numpy" },
     { name = "pyyaml" },
+    { name = "tyro" },
 ]
 
 [package.optional-dependencies]
@@ -7093,6 +7094,7 @@ requires-dist = [
     { name = "pyrealsense2", marker = "extra == 'camera'", specifier = ">=2.54" },
     { name = "pyudev", marker = "extra == 'camera'", specifier = ">=0.24" },
     { name = "pyyaml", specifier = ">=6.0" },
+    { name = "tyro", specifier = ">=1.0.13" },
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'gui'", specifier = ">=0.27" },
     { name = "websockets", marker = "extra == 'deploy'", specifier = ">=12" },
     { name = "websockets", marker = "extra == 'gui'", specifier = ">=12" },

@@ -20,15 +20,17 @@ molmoact2 group carries them, so add `--extra deploy` or use PYTHONPATH; see _wi
 
 from __future__ import annotations
 
-import argparse
 import importlib.util
 import logging
 import os
 import sys
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 import numpy as np
 import torch
+import tyro
 
 sys.path.insert(0, os.path.dirname(__file__))
 import _wire  # noqa: E402  (sibling module, no yam_abc_reproduce dependency)
@@ -75,33 +77,29 @@ def build_infer(policy, num_steps: int):
     return infer
 
 
+@dataclass
+class ServerArgs:
+    host: str = "0.0.0.0"
+    port: int = 8202
+    device: str = "cuda:0"
+    dtype: Literal["bfloat16", "float16", "float32"] = "bfloat16"
+    num_steps: int = 10
+    checkpoint: str | None = None
+    """local HF-format checkpoint dir (e.g. a YAM-ABC-Reproduce-finetuned model
+    converted via convert_molmoact2_to_hf.py). Defaults to the release repo id."""
+    norm_tag: str | None = None
+    """normalization tag in the checkpoint's norm_stats.json. Auto-detected
+    from a local checkpoint (its single metadata_by_tag key) when omitted;
+    a YAM-ABC-Reproduce-finetuned model uses 'yam_abc_reproduce_yam', the release model
+    'yam_dual_molmoact2'."""
+    molmoact_repo: str = str(
+        Path(__file__).resolve().parents[3] / "third_party" / "policy" / "molmoact2"
+    )
+    """path to the molmoact2 checkout (default: sibling submodule)"""
+
+
 def main() -> None:
-    p = argparse.ArgumentParser(description="MolmoAct2-YAM YAM-ABC-Reproduce websocket server")
-    p.add_argument("--host", default="0.0.0.0")
-    p.add_argument("--port", type=int, default=8202)
-    p.add_argument("--device", default="cuda:0")
-    p.add_argument("--dtype", default="bfloat16", choices=["bfloat16", "float16", "float32"])
-    p.add_argument("--num-steps", type=int, default=10)
-    p.add_argument(
-        "--checkpoint",
-        default=None,
-        help="local HF-format checkpoint dir (e.g. a YAM-ABC-Reproduce-finetuned model "
-        "converted via convert_molmoact2_to_hf.py). Defaults to the release repo id.",
-    )
-    p.add_argument(
-        "--norm-tag",
-        default=None,
-        help="normalization tag in the checkpoint's norm_stats.json. Auto-detected "
-        "from a local checkpoint (its single metadata_by_tag key) when omitted; "
-        "a YAM-ABC-Reproduce-finetuned model uses 'yam_abc_reproduce_yam', the release model "
-        "'yam_dual_molmoact2'.",
-    )
-    p.add_argument(
-        "--molmoact-repo",
-        default=str(Path(__file__).resolve().parents[3] / "third_party" / "policy" / "molmoact2"),
-        help="path to the molmoact2 checkout (default: sibling submodule)",
-    )
-    args = p.parse_args()
+    args = tyro.cli(ServerArgs, description="MolmoAct2-YAM YAM-ABC-Reproduce websocket server")
 
     host_mod = _load_host_server_module(Path(args.molmoact_repo))
     dtype = {"bfloat16": torch.bfloat16, "float16": torch.float16, "float32": torch.float32}[

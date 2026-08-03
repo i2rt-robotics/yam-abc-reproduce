@@ -23,12 +23,13 @@ neither, so add `--extra deploy` or put openpi-client on PYTHONPATH (see docs/de
 
 from __future__ import annotations
 
-import argparse
 import logging
 import os
 import sys
+from dataclasses import dataclass
 
 import numpy as np
+import tyro
 
 sys.path.insert(0, os.path.dirname(__file__))
 import _wire 
@@ -127,14 +128,19 @@ def build_infer(policy, camera_keys):
     return infer
 
 
+@dataclass
+class ServerArgs:
+    checkpoint: str
+    """checkpoint path or s3:// uri"""
+    prompt: str
+    """fixed task instruction (baked at load)"""
+    host: str = "0.0.0.0"
+    port: int = 8300
+    device: str = "cuda"
+
+
 def main() -> None:
-    p = argparse.ArgumentParser(description="ABC DiT YAM-ABC-Reproduce websocket server")
-    p.add_argument("--host", default="0.0.0.0")
-    p.add_argument("--port", type=int, default=8300)
-    p.add_argument("--checkpoint", required=True, help="checkpoint path or s3:// uri")
-    p.add_argument("--prompt", required=True, help="fixed task instruction (baked at load)")
-    p.add_argument("--device", default="cuda")
-    args = p.parse_args()
+    args = tyro.cli(ServerArgs, description="ABC DiT YAM-ABC-Reproduce websocket server")
 
     from abc_minimal.config import SimEvalConfig
     from abc_minimal.eval_policy import SimPolicy, local_checkpoint

@@ -15,12 +15,13 @@ exploding. Writes ``<cache>/norm_stats.json`` in the schema the trainer loads.
 """
 from __future__ import annotations
 
-import argparse
 import glob
 import json
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
+import tyro
 
 STATE_DIM = 14  # [left arm6, left ee1, right arm6, right ee1]
 STD_FLOOR = 1e-2  # dims with std below this are treated as constant -> std=1.0
@@ -45,13 +46,22 @@ def stats(x: np.ndarray) -> dict:
     return {"mean": mean.tolist(), "std": std.tolist(), "_floored_dims": np.where(floored)[0].tolist()}
 
 
+@dataclass
+class ComputeAbcNormStatsArgs:
+    cache: str
+    """ABC cache root (contains train_real/)"""
+    train_dir: str = "train_real"
+    """split to compute stats over"""
+    state_dim: int = STATE_DIM
+    out: str | None = None
+    """output path; defaults to <cache>/norm_stats.json"""
+
+
 def main() -> None:
-    ap = argparse.ArgumentParser(description="Compute ABC norm_stats.json from an export cache")
-    ap.add_argument("--cache", required=True, help="ABC cache root (contains train_real/)")
-    ap.add_argument("--train-dir", default="train_real", help="split to compute stats over")
-    ap.add_argument("--state-dim", type=int, default=STATE_DIM)
-    ap.add_argument("--out", default=None, help="output path (default <cache>/norm_stats.json)")
-    args = ap.parse_args()
+    args = tyro.cli(
+        ComputeAbcNormStatsArgs,
+        description="Compute ABC norm_stats.json from an export cache",
+    )
 
     cache = Path(args.cache)
     rows = load_rows(cache, args.train_dir)

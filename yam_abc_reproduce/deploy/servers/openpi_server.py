@@ -26,11 +26,12 @@ Run (cd third_party/policy/openpi for its sources; python from the repo's .venv)
 
 from __future__ import annotations
 
-import argparse
 import logging
 import os
+from dataclasses import dataclass
 
 import numpy as np
+import tyro
 
 # Serving fetches the PaliGemma tokenizer from gs://big_vision via gcsfs, whose aiohttp
 # session ignores http_proxy without trust_env=True. Must be at module scope: fsspec reads
@@ -89,32 +90,30 @@ class RemapPolicy:
             self._policy.reset()
 
 
+@dataclass
+class ServerArgs:
+    config: str
+    """openpi TrainConfig name (config.get_config)"""
+    checkpoint: str
+    """checkpoint dir (local or gs://)"""
+    host: str = "0.0.0.0"
+    port: int = 8000
+    prompt: str | None = None
+    """default prompt if obs lacks one"""
+    device: str | None = None
+    """pytorch device for torch checkpoints"""
+    image_key_map: str | None = None
+    """comma list role=model_key, e.g. top=cam_high,left=cam_left_wrist"""
+    flatten_prefix: str | None = None
+    """if set, images go to top-level keys f'{prefix}{model_key}'
+    (e.g. 'observation/') instead of a nested 'images' dict"""
+    state_key: str = "state"
+    """key the model's Input transform reads state from (e.g.
+    'observation/state' for the YAM-ABC-Reproduce YAM config; default 'state')"""
+
+
 def main() -> None:
-    p = argparse.ArgumentParser(description="openpi YAM-ABC-Reproduce websocket server")
-    p.add_argument("--host", default="0.0.0.0")
-    p.add_argument("--port", type=int, default=8000)
-    p.add_argument("--config", required=True, help="openpi TrainConfig name (config.get_config)")
-    p.add_argument("--checkpoint", required=True, help="checkpoint dir (local or gs://)")
-    p.add_argument("--prompt", default=None, help="default prompt if obs lacks one")
-    p.add_argument("--device", default=None, help="pytorch device for torch checkpoints")
-    p.add_argument(
-        "--image-key-map",
-        default=None,
-        help="comma list role=model_key, e.g. top=cam_high,left=cam_left_wrist",
-    )
-    p.add_argument(
-        "--flatten-prefix",
-        default=None,
-        help="if set, images go to top-level keys f'{prefix}{model_key}' "
-        "(e.g. 'observation/') instead of a nested 'images' dict",
-    )
-    p.add_argument(
-        "--state-key",
-        default="state",
-        help="key the model's Input transform reads state from (e.g. "
-        "'observation/state' for the YAM-ABC-Reproduce YAM config; default 'state')",
-    )
-    args = p.parse_args()
+    args = tyro.cli(ServerArgs, description="openpi YAM-ABC-Reproduce websocket server")
 
     from openpi.policies import policy_config
     from openpi.serving import websocket_policy_server

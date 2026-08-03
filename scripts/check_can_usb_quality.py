@@ -3,13 +3,15 @@
 
 from __future__ import annotations
 
-import argparse
 import json
 import subprocess
 import sys
 import time
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
+
+import tyro
 
 
 DEFAULT_IFACES = ["can_left", "can_right", "can_lead_l", "can_lead_r"]
@@ -102,17 +104,28 @@ def print_sample(index: int, now: str, samples: list[dict], previous: list[dict]
         print(message)
 
 
+@dataclass
+class CheckCanUsbQualityArgs:
+    seconds: float = 60.0
+    """total sampling time"""
+    interval: float = 1.0
+    """seconds between samples"""
+    out: Path | None = None
+    """optional JSON report path"""
+    interfaces: list[str] = field(default_factory=lambda: list(DEFAULT_IFACES))
+
+
 def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Read-only CAN/USB transport monitor. It never transmits CAN frames."
+    args = tyro.cli(
+        CheckCanUsbQualityArgs,
+        description="Read-only CAN/USB transport monitor. It never transmits CAN frames.",
     )
-    parser.add_argument("--seconds", type=float, default=60.0, help="total sampling time")
-    parser.add_argument("--interval", type=float, default=1.0, help="seconds between samples")
-    parser.add_argument("--out", type=Path, default=None, help="optional JSON report path")
-    parser.add_argument("--interfaces", nargs="+", default=DEFAULT_IFACES)
-    args = parser.parse_args()
     if args.seconds <= 0 or args.interval <= 0:
-        parser.error("--seconds and --interval must be positive")
+        raise SystemExit("error: --seconds and --interval must be positive")
+    # A bare `--interfaces` parses to [], where argparse's nargs="+" refused it. Without this
+    # the monitor would sample nothing and still report a clean bill of health.
+    if not args.interfaces:
+        raise SystemExit("error: --interfaces needs at least one interface")
 
     print("CAN/USB quality monitor (read-only)")
     print("Interfaces:", ", ".join(args.interfaces))

@@ -24,10 +24,12 @@ Usage:
 
 from __future__ import annotations
 
-import argparse
 import time
+from dataclasses import dataclass
+from typing import Literal
 
 import numpy as np
+import tyro
 
 from yam_abc_reproduce.config import (
     ControllerConfig,
@@ -113,13 +115,16 @@ def cmd_zero(cfg, side: str) -> None:
     )
 
 
+@dataclass
+class CalibrateGelloArgs:
+    command: tyro.conf.Positional[Literal["monitor", "zero"]]
+    controller: Literal["left", "right"] = "left"
+    station: str = "configs/station_yam.yaml"
+    cameras: str = "configs/cameras.yaml"
+
+
 def main() -> None:
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("command", choices=["monitor", "zero"])
-    ap.add_argument("--controller", choices=["left", "right"], default="left")
-    ap.add_argument("--station", default="configs/station_yam.yaml")
-    ap.add_argument("--cameras", default="configs/cameras.yaml")
-    args = ap.parse_args()
+    args = tyro.cli(CalibrateGelloArgs, description=__doc__)
 
     cfg = build_station_config(args.station, args.cameras)
     if args.command == "monitor":

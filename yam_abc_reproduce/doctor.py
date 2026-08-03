@@ -16,7 +16,6 @@ Exit code: 0 = no FAIL rows, 1 = at least one FAIL, 2 = doctor itself errored.
 
 from __future__ import annotations
 
-import argparse
 import json
 import os
 import re
@@ -29,6 +28,8 @@ import sys
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
+
+import tyro
 
 # --- CAN protocol fingerprints (matches scripts/monitor_can_reply_latency.py) ---
 _CAN_FRAME = struct.Struct("=IB3x8s")
@@ -297,15 +298,18 @@ def run(config: Path, do_listen: bool) -> list[Finding]:
     return findings
 
 
+@dataclass
+class DoctorArgs:
+    config: str = "configs/station_yam.yaml"
+    listen: bool = True
+    """classify each bus's traffic from a 1s passive listen (--no-listen skips it)"""
+    json: bool = False
+    selftest: bool = False
+    """exercise the pure traffic classifier (no hardware needed) and exit"""
+
+
 def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--config", default="configs/station_yam.yaml")
-    ap.add_argument("--no-listen", action="store_true",
-                    help="skip the 1s-per-bus passive CAN traffic classification")
-    ap.add_argument("--json", action="store_true")
-    ap.add_argument("--selftest", action="store_true", help=argparse.SUPPRESS)
-    args = ap.parse_args()
+    args = tyro.cli(DoctorArgs, prog="yam-abc-doctor", description=__doc__)
 
     if args.selftest:
         assert classify_traffic(set()) == "silent"
@@ -316,7 +320,7 @@ def main() -> int:
         return 0
 
     try:
-        findings = run(Path(args.config), do_listen=not args.no_listen)
+        findings = run(Path(args.config), do_listen=args.listen)
     except Exception as e:  # noqa: BLE001
         print(f"doctor crashed: {e}", file=sys.stderr)
         return 2

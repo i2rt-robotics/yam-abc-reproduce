@@ -17,7 +17,46 @@ Example:
 
 from __future__ import annotations
 
-import argparse
+from dataclasses import dataclass
+
+import tyro
+
+
+@dataclass
+class DeployArgs:
+    host: str
+    """policy server host/IP"""
+    port: int
+    """policy server port"""
+    prompt: str
+    """task instruction sent to the policy"""
+    station: str = "configs/station_yam.yaml"
+    cameras: str | None = None
+    mock: bool = False
+    """use mock robot + cameras"""
+    seconds: float = 60.0
+    """rollout duration"""
+    open_loop_horizon: int = 15
+    """rows to execute per predicted chunk before re-querying (= ABC execute_chunk_dim)"""
+    rtc: bool = False
+    """real-time chunking: async, prefix-conditioned (ABC/LBM style)"""
+    rtc_prefix_length: int = 4
+    """RTC: frozen prefix rows (P)"""
+    rtc_action_horizon: int = 15
+    """RTC: rows streamed per chunk (H)"""
+    rtc_lead_steps: int = 4
+    """RTC: re-query when L rows remain"""
+    ramp_seconds: float = 1.0
+    """ease-in to first action"""
+    home_pose: str | None = None
+    """comma/space-separated joint vector to ramp to before the policy takes over
+    ([joints..., gripper] per arm, in robots order). Defaults to the station's
+    `deploy_home_pose`; pass an empty string to skip homing"""
+    max_joint_speed: float = 1.5
+    """max arm-joint speed in rad/s (safety clamp; <=0 disables)(truncate + warn); 0 disables"""
+    resize: str | None = None
+    """optional HxW to resize images before send, e.g. 224x224 (default: full res)"""
+    api_key: str | None = None
 
 
 def deploy(argv: list[str] | None = None) -> None:
@@ -26,43 +65,7 @@ def deploy(argv: list[str] | None = None) -> None:
     from .client import WebsocketPolicyClient
     from .loop import DeployLoop
 
-    p = argparse.ArgumentParser(prog="yam-abc-deploy")
-    p.add_argument("--station", default="configs/station_yam.yaml")
-    p.add_argument("--cameras", default=None)
-    p.add_argument("--mock", action="store_true", help="use mock robot + cameras")
-    p.add_argument("--host", required=True, help="policy server host/IP")
-    p.add_argument("--port", type=int, required=True, help="policy server port")
-    p.add_argument("--prompt", required=True, help="task instruction sent to the policy")
-    p.add_argument("--seconds", type=float, default=60.0, help="rollout duration")
-    p.add_argument(
-        "--open-loop-horizon",
-        type=int,
-        default=15,
-        help="rows to execute per predicted chunk before re-querying (= ABC execute_chunk_dim)",
-    )
-    p.add_argument("--rtc", action="store_true",
-                   help="real-time chunking: async, prefix-conditioned (ABC/LBM style)")
-    p.add_argument("--rtc-prefix-length", type=int, default=4, help="RTC: frozen prefix rows (P)")
-    p.add_argument("--rtc-action-horizon", type=int, default=15, help="RTC: rows streamed per chunk (H)")
-    p.add_argument("--rtc-lead-steps", type=int, default=4, help="RTC: re-query when L rows remain")
-    p.add_argument("--ramp-seconds", type=float, default=1.0, help="ease-in to first action")
-    p.add_argument(
-        "--home-pose",
-        default=None,
-        help="comma/space-separated joint vector to ramp to before the policy takes over "
-             "([joints..., gripper] per arm, in robots order). Defaults to the station's "
-             "`deploy_home_pose`; pass an empty string to skip homing",
-    )
-    p.add_argument("--max-joint-speed", type=float, default=1.5,
-                   help="max arm-joint speed in rad/s (safety clamp; <=0 disables)"
-                        "(truncate + warn); 0 disables")
-    p.add_argument(
-        "--resize",
-        default=None,
-        help="optional HxW to resize images before send, e.g. 224x224 (default: full res)",
-    )
-    p.add_argument("--api-key", default=None)
-    args = p.parse_args(argv)
+    args = tyro.cli(DeployArgs, args=argv, prog="yam-abc-deploy")
 
     resize = None
     if args.resize:
@@ -82,8 +85,8 @@ def deploy(argv: list[str] | None = None) -> None:
             cfg.robot.num_arm_joints + 1
         )
         if len(home_pose) != expected:
-            p.error(
-                f"--home-pose has {len(home_pose)} values but this station needs "
+            raise SystemExit(
+                f"error: --home-pose has {len(home_pose)} values but this station needs "
                 f"{expected} ([joints..., gripper] per arm, in robots order)"
             )
 

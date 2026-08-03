@@ -20,12 +20,14 @@ state does not matter — only USB presence does.
 
 from __future__ import annotations
 
-import argparse
 import re
 import subprocess
 import sys
 import time
+from dataclasses import dataclass
 from pathlib import Path
+
+import tyro
 
 DEFAULT_ROLES = [
     # (interface name to assign, human prompt)
@@ -124,15 +126,18 @@ def identify(roles: list[tuple[str, str]]) -> dict[str, str] | None:
 serial_of_cache: dict[str, str | None] = {}
 
 
+@dataclass
+class SetupCanUdevArgs:
+    roles: str = ",".join(r for r, _ in DEFAULT_ROLES)
+    """comma-separated interface names to assign, in prompt order"""
+    print_only: bool = False
+    """identify and print the rules, but do not write or reload"""
+    selftest: bool = False
+    """exercise the pure rule generator (no hardware needed) and exit"""
+
+
 def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--roles", default=",".join(r for r, _ in DEFAULT_ROLES),
-                    help="comma-separated interface names to assign, in prompt order")
-    ap.add_argument("--print-only", action="store_true",
-                    help="identify and print the rules, but do not write or reload")
-    ap.add_argument("--selftest", action="store_true", help=argparse.SUPPRESS)
-    args = ap.parse_args()
+    args = tyro.cli(SetupCanUdevArgs, description=__doc__)
 
     if args.selftest:  # exercises the pure rule generator (no hardware needed)
         out = generate_rules({"can_left": "AAA111", "can_lead_l": "BBB222"})

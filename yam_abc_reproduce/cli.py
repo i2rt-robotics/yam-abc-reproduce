@@ -2,12 +2,20 @@
 
 from __future__ import annotations
 
-import argparse
+from dataclasses import dataclass
+from typing import Literal
+
+import tyro
+
+
+@dataclass
+class CamerasArgs:
+    pass
 
 
 def cameras(argv: list[str] | None = None) -> None:
     """List connected cameras (RealSense + V4L2/decxin) with serials for cameras.yaml."""
-    argparse.ArgumentParser(prog="yam-abc-cameras").parse_args(argv)
+    tyro.cli(CamerasArgs, args=argv, prog="yam-abc-cameras")
 
     from .camera.discovery import discover_realsense, discover_v4l2
 
@@ -30,19 +38,24 @@ def cameras(argv: list[str] | None = None) -> None:
     print("Or configure them from live hardware in the GUI Station rail (Preview detects + saves).")
 
 
+@dataclass
+class TeleopArgs:
+    station: str = "configs/station_yam.yaml"
+    cameras: str | None = None
+    mock: bool = False
+    """use mock robot + cameras"""
+    record: str | None = None
+    """record one episode, under this TASK name"""
+    seconds: float = 10.0
+
+
 def teleop(argv: list[str] | None = None) -> None:
     """Run teleop + (optional) recording from the command line, headless."""
     from .config import build_station_config
     from .runtime import build_arm_units, build_cameras_from_config
     from .teleop.loop import ControlLoop
 
-    p = argparse.ArgumentParser(prog="yam-abc-teleop")
-    p.add_argument("--station", default="configs/station_yam.yaml")
-    p.add_argument("--cameras", default=None)
-    p.add_argument("--mock", action="store_true", help="use mock robot + cameras")
-    p.add_argument("--record", metavar="TASK", default=None, help="record one episode")
-    p.add_argument("--seconds", type=float, default=10.0)
-    args = p.parse_args(argv)
+    args = tyro.cli(TeleopArgs, args=argv, prog="yam-abc-teleop")
 
     cfg = build_station_config(args.station, args.cameras)
     units = build_arm_units(cfg, mock=args.mock)
@@ -52,6 +65,16 @@ def teleop(argv: list[str] | None = None) -> None:
                  station=cfg)
 
 
+@dataclass
+class ConvertArgs:
+    src: tyro.conf.Positional[str]
+    """episode dir (default format) or parent dir"""
+    to: Literal["lerobot", "abc"] = "lerobot"
+    repo_id: str = "yam_abc_reproduce/pick_and_place"
+    out: str | None = None
+    """output root (LeRobot dataset root)"""
+
+
 def convert(argv: list[str] | None = None) -> None:
     """Convert a default-format episode (or directory of them) to another format."""
     import os
@@ -59,27 +82,35 @@ def convert(argv: list[str] | None = None) -> None:
 
     from .data.formats import convert_episode
 
-    p = argparse.ArgumentParser(prog="yam-abc-convert")
-    p.add_argument("src", help="episode dir (default format) or parent dir")
-    p.add_argument("--to", default="lerobot", choices=["lerobot", "abc"])
-    p.add_argument("--repo-id", default="yam_abc_reproduce/pick_and_place")
-    p.add_argument("--out", default=None, help="output root (LeRobot dataset root)")
-    args = p.parse_args(argv)
+    args = tyro.cli(ConvertArgs, args=argv, prog="yam-abc-convert")
     if args.out is None and not os.environ.get("HF_LEROBOT_HOME"):
         os.environ["HF_LEROBOT_HOME"] = str(Path(__file__).resolve().parents[1] / "data" / "lerobot")
     convert_episode(args.src, to=args.to, repo_id=args.repo_id, out=args.out)
+
+
+@dataclass
+class VizArgs:
+    repo_id: str = "yam_abc_reproduce/pick_and_place"
+    root: str | None = None
+    episode_index: int = 0
 
 
 def viz(argv: list[str] | None = None) -> None:
     """Visualize a converted LeRobot dataset (Reron viewer) for a sanity check."""
     from .data.visualize import visualize_lerobot
 
-    p = argparse.ArgumentParser(prog="yam-abc-viz")
-    p.add_argument("--repo-id", default="yam_abc_reproduce/pick_and_place")
-    p.add_argument("--root", default=None)
-    p.add_argument("--episode-index", type=int, default=0)
-    args = p.parse_args(argv)
+    args = tyro.cli(VizArgs, args=argv, prog="yam-abc-viz")
     visualize_lerobot(repo_id=args.repo_id, root=args.root, episode_index=args.episode_index)
+
+
+@dataclass
+class GuiArgs:
+    station: str = "configs/station_yam.yaml"
+    cameras: str | None = None
+    mock: bool = False
+    """use mock robot + cameras"""
+    host: str = "0.0.0.0"
+    port: int = 8042
 
 
 def gui(argv: list[str] | None = None) -> None:
@@ -91,13 +122,7 @@ def gui(argv: list[str] | None = None) -> None:
     from .config import build_station_config
     from .gui.server import create_app
 
-    p = argparse.ArgumentParser(prog="yam-abc-gui")
-    p.add_argument("--station", default="configs/station_yam.yaml")
-    p.add_argument("--cameras", default=None)
-    p.add_argument("--mock", action="store_true", help="use mock robot + cameras")
-    p.add_argument("--host", default="0.0.0.0")
-    p.add_argument("--port", type=int, default=8042)
-    args = p.parse_args(argv)
+    args = tyro.cli(GuiArgs, args=argv, prog="yam-abc-gui")
 
     # Root logger at INFO so the station's own diagnostics (each follower's resolved gripper
     # travel, i2rt's gripper calibration) reach the terminal; the default is WARNING, no handler.
