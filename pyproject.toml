@@ -55,13 +55,13 @@ dev = ["pytest>=8.0", "ruff>=0.4", "httpx>=0.27", "opencv-python-headless>=4.8,<
 openpi = [
     "openpi",
     # Same hazard the molmoact2-train group guards against below, mirrored onto openpi's
-    # torch 2.7.1: torchcodec declares NO torch dependency, so nothing keeps the pair
-    # ABI-matched. The lerobot 0.5.1 that openpi pins only asks for >=0.3.0,<0.11.0, and uv
-    # takes the ceiling -- 0.10.0, built against torch 2.10 -- which then fails to load with
-    # "undefined symbol: c10::MessageLogger::stream()" (a symbol torch grew after 2.7.1).
-    # 0.4.x is the release that pairs with torch 2.7. Verified on Ubuntu 22.04 / FFmpeg 4.4:
-    # 0.10.0 cannot decode at all, 0.4.0 decodes LeRobot frames fine.
-    "torchcodec>=0.4,<0.5",
+    # torch: torchcodec declares NO torch dependency, so nothing keeps the pair ABI-matched.
+    # The lerobot 0.5.1 that openpi pins only asks for >=0.3.0,<0.11.0, and uv takes the
+    # ceiling -- 0.10.0, built against torch 2.10 -- which then fails to load with
+    # "undefined symbol: c10::MessageLogger::stream()". 0.8 and 0.9 are the releases that
+    # pair with the torch 2.9.0 openpi now pins (pytorch/torchcodec's own compatibility
+    # matrix); this window was 0.4.x back when that pin was torch 2.7.1.
+    "torchcodec>=0.8,<0.10",
     # openpi's maybe_download() special-cases the gs://openpi-assets bucket (the pi0/pi05
     # base checkpoints) and shells out to `gsutil -m cp -r`, falling back to gcsfs with a
     # warning when gsutil is not on PATH -- the fallback is the path upstream added that
@@ -186,19 +186,46 @@ explicit = true
 build-constraint-dependencies = ["scikit-build-core<0.10"]
 
 # Same story: uv ignores a path dependency's own [tool.uv] table, so openpi's overrides
-# have to be restated here or its jax stack does not resolve. rerun-sdk is ours: i2rt
-# needs >=0.32.2 while the lerobot==0.5.1 that openpi pins caps it at <0.27, and i2rt is
-# now a base dependency present in every resolution. Only lerobot's own Rerun-based
-# dataset viewer (`lerobot-dataset-viz`) touches that API, so the de-pin does not affect
-# training or serving.
+# have to be restated here or its jax stack does not resolve. Three kinds of entry live in
+# this list, and the third is the one to read before touching it.
+#
+# Restated from openpi verbatim (third_party/policy/openpi/pyproject.toml): tensorstore
+# and mujoco.
+#
+# Ours: rerun-sdk. i2rt needs >=0.32.2 while the lerobot==0.5.1 that openpi pins caps it
+# at <0.27, and i2rt is now a base dependency present in every resolution. Only lerobot's
+# own Rerun-based dataset viewer (`lerobot-dataset-viz`) touches that API, so the de-pin
+# does not affect training or serving.
+#
+# Deliberate divergence from what openpi pins, so pi0/pi0.5 can train multi-GPU on
+# Blackwell (sm_120). openpi asks for jax[cuda12]==0.5.3, whose xla_cuda_plugin.so carries
+# SASS only up to sm_90 -- and no embedded PTX either, so the driver cannot JIT forward.
+# Small collectives survive because XLA emits its own kernel as PTX and the venv's ptxas
+# knows sm_120; the precompiled NCCL path does not, so the first large all-reduce of an
+# FSDP step dies. The error is a hard abort, not an exception, and it lands one allocation
+# *after* the faulting collective because CUDA errors are sticky and asynchronous:
+# "Check failed: copy_stream->WaitFor(local_device->compute_stream()).ok()". Single-GPU
+# never touches NCCL, which is why only GPUs > 1 broke. ml-dtypes rides along because
+# jaxlib 0.6.2 requires >=0.5.0 and openpi pins ==0.4.1; nothing in the tree caps it.
+#
+# Both are safe to override globally: jax and ml-dtypes resolve only inside the openpi
+# fork. NCCL and cuDNN are NOT -- torch pins those exactly and every backend has a torch --
+# so they are fixed by openpi's own torch pin instead (see that file), because uv applies
+# overrides to every resolution fork and cannot scope one to a dependency-group.
+# `jax[cuda12]`, not `jax`: an override replaces the whole requirement, extras included,
+# and dropping the extra resolves fine while silently moving training to the CPU.
+# Verified on xdof-dgx02 (8x RTX PRO 6000 Blackwell, sm_120, driver 595.71.05 / CUDA 13.2):
+# jax 0.6.2 with NCCL 2.27.5 clears a psum sweep to 512 MB where 0.5.3 with NCCL 2.26.2
+# aborts, and cuobjdump lists sm_120 in both the XLA plugin and libnccl.so.2.
 override-dependencies = [
-    "ml-dtypes==0.4.1",
+    "jax[cuda12]==0.6.2",
+    "ml-dtypes>=0.5.3",
     "tensorstore==0.1.74",
     "mujoco>=3.1.0",
     "rerun-sdk>=0.32.2",
 ]
 
-# The policy backends pin mutually incompatible builds -- torch 2.7.1 (openpi) vs
+# The policy backends pin mutually incompatible builds -- torch 2.9.0 (openpi) vs
 # 2.11.0+cu128 (abc) vs 2.5.1+cu121 (molmoact2 server) vs 2.11.0 on the CUDA 13 runtime
 # (molmoact2 training), and transformers 4.57.x vs 5.x -- so no single environment can hold
 # two of them. Declaring the conflicts lets one lockfile carry a separate resolution per

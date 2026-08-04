@@ -39,12 +39,30 @@ git-lfs installed failed in the smudge filter, and cloning without it produced
 text stubs where a PNG and a RealSense bag belonged. The pointers are deleted
 (their only consumers are vendored lerobot's own `tests/cameras/test_opencv.py`
 and `test_realsense.py`, which this repo never runs) and that `.gitattributes`
-now marks the same patterns `binary` instead of `filter=lfs ...` -- the one
-local edit inside a vendored tree, kept because re-vendoring must not
-reintroduce the trap.
+now marks the same patterns `binary` instead of `filter=lfs ...` — a local edit
+inside a vendored tree, kept because re-vendoring must not reintroduce the trap.
+See "Local edits" below for the full list.
 
 So: when re-vendoring, copy from a checkout whose LFS content is either fully
 fetched or fully excluded, never a mix — and remember that `git status` in the
 source checkout looks clean either way, because an unfetched pointer *is* the
 committed content there. `tests/test_no_git_lfs.py` fails the suite if either
 half comes back.
+
+## Local edits
+
+Deltas this repo carries *on top of* the vendored snapshot. A re-vendor is a
+plain copy and will silently drop every one of them, so re-apply them:
+
+- `openpi/pyproject.toml` — `torch` pinned to `2.9.0`, where upstream pins
+  `2.7.1`. torch pins its CUDA libraries exactly, and 2.7.1's
+  `nvidia-nccl-cu12==2.26.2` carries no sm_120 kernels, so on a Blackwell card
+  the first large all-reduce of a multi-GPU pi0 step aborts. 2.9.0 pins NCCL
+  2.27.5 and cuDNN 9.10.2.21, both sm_120-capable and both satisfying the
+  `jax[cuda12]==0.6.2` the root `pyproject.toml` overrides openpi's jax to.
+  It has to be edited *here*: uv applies `override-dependencies` to every
+  resolution fork, so overriding torch at the root would move abc-policy and
+  molmoact2 too. Losing this pin re-breaks multi-GPU training and nothing else,
+  which is a quiet failure — the single-GPU path keeps working. See #2.
+- `molmoact2/experiments/lerobot/.gitattributes` — LFS filters replaced with
+  `binary`, per the section above. `tests/test_no_git_lfs.py` guards this one.

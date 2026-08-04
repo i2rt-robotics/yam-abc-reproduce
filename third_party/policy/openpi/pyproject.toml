@@ -26,7 +26,13 @@ dependencies = [
     "orbax-checkpoint==0.11.13",
     "pillow>=11.0.0",
     "sentencepiece>=0.2.0",
-    "torch==2.7.1",
+    # Local edit, recorded in ../VERSIONS.md -- upstream pins 2.7.1. torch pins its CUDA
+    # libraries exactly, and 2.7.1's nvidia-nccl-cu12==2.26.2 carries no sm_120 kernels, so
+    # it is what broke multi-GPU pi0 on Blackwell. 2.9.0 pins nccl 2.27.5 and cudnn 9.10.2.21,
+    # both of which satisfy jax 0.6.2 and both of which do carry sm_120. This pin cannot live
+    # in the root's override-dependencies: uv applies those to every resolution fork, and a
+    # torch override would hit the abc-policy and molmoact2 backends too.
+    "torch==2.9.0",
     "tqdm-loggable>=0.2",
     "typing-extensions>=4.12.2",
     "tyro>=0.9.5",
