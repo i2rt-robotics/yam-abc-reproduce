@@ -73,11 +73,18 @@ second machine or a second checkout.) If the backend isn't installed you get a
 `... is not installed` error naming the exact command to run, instead of an ImportError
 several minutes into training.
 
-Two consequences of sharing one venv:
+Three consequences of sharing one venv:
 
 - `rerun-sdk` is de-pinned to `>=0.32.2` in `[tool.uv] override-dependencies`, so i2rt can
   coexist with the `lerobot==0.5.1` openpi pins. This affects only lerobot's own Rerun-based
   dataset viewer, not training or serving.
+- openpi's jax is overridden *away* from what it pins — `jax[cuda12]==0.6.2` in that same list,
+  instead of its `0.5.3` — and its `torch` is pinned to `2.9.0`. Neither jax 0.5.3's XLA plugin
+  nor the NCCL that torch 2.7.1 pins carries sm_120 kernels, so on a Blackwell card the first
+  large all-reduce of a multi-GPU step aborts the process; single-GPU never touches NCCL and was
+  always fine. torch 2.9.0 brings NCCL 2.27.5 and cuDNN 9.10.2.21, which do. The reasoning, and
+  why the torch pin has to live in the vendored `pyproject.toml` rather than in the override
+  list, is in the comment above `override-dependencies`.
 - openpi depends on `opencv-python` while `camera`/`gui` use `opencv-python-headless`. Both
   ship the same `cv2` module, so `--group openpi` together with either extra puts two providers
   of one import in the venv and install order decides which wins. If `import cv2` starts
@@ -97,7 +104,7 @@ group is currently synced.
 | dataset / task | The LeRobot repo-id to train on (for `abc` this field is vestigial — it uses the prepared cache, see below). |
 | run name | Names the output run/checkpoint directory. |
 | batch / GPU | Per-GPU batch size. |
-| GPUs | Number of GPUs **in this machine** — single-node only (`torchrun --standalone` for molmoact2/abc, JAX FSDP `--fsdp-devices` for π<sub>0</sub>/π<sub>0.5</sub>; there is no multi-node path). The job is confined to exactly this many cards via `CUDA_VISIBLE_DEVICES`, picked by free VRAM at launch; asking for more than are available is refused before the job starts. **Leave at `1`** — see [One GPU at a time](#one-gpu-at-a-time). `batch / GPU` × `GPUs` is the global batch. |
+| GPUs | Number of GPUs **in this machine** — single-node only (`torchrun --standalone` for molmoact2/abc, JAX FSDP `--fsdp-devices` for π<sub>0</sub>/π<sub>0.5</sub>; there is no multi-node path). The job is confined to exactly this many cards via `CUDA_VISIBLE_DEVICES`, picked by free VRAM at launch; asking for more than are available is refused before the job starts. **On the single-GPU station, leave at `1`** — see [One GPU at a time](#one-gpu-at-a-time). `batch / GPU` × `GPUs` is the global batch. |
 | steps | Total training steps. |
 | save every | Checkpoint interval (steps). |
 
@@ -131,17 +138,17 @@ Checkpoints are written under each backend's output dir (shown in the logs).
 <a id="one-gpu-at-a-time"></a>
 ### One GPU at a time
 
-This pipeline is only validated on a **single-GPU station** — one box, one NVIDIA card (a
-32 GB RTX 5090), doing collect, review, convert, train and serve. Three consequences:
+The **station** is a single-GPU box — one NVIDIA card (a 32 GB RTX 5090) doing collect, review,
+convert, train and serve. Three consequences:
 
-- **`GPUs` stays `1`.** Multi-GPU is wired up (`--fsdp-devices` for π<sub>0</sub>/π<sub>0.5</sub>,
-  `torchrun --nproc-per-node` for molmoact2/abc) but has never been exercised here, and it is
-  single-node regardless — nothing sets `MASTER_ADDR`/`rdzv`, so "more GPUs" always means more
-  cards in *this* machine. The defaults above are what fits one card: molmoact2 only trains
-  comfortably in `action_expert_only` (frozen VLM, ~8 GB peak); `lora` needs ~30.7 GB and OOMs
-  with no headroom, and `fft` needs more still. A value above `1` now genuinely hands the job
-  that many cards — it used to only resize the batch and the mesh while every card stayed open
-  — so treat it as an unvalidated path, not an inert one.
+- **On the station, `GPUs` stays `1`** — there is only one card. Multi-GPU is single-node
+  regardless: nothing sets `MASTER_ADDR`/`rdzv`, so "more GPUs" always means more cards in *this*
+  machine. The defaults above are what fits one card: molmoact2 only trains comfortably in
+  `action_expert_only` (frozen VLM, ~8 GB peak); `lora` needs ~30.7 GB and OOMs with no headroom,
+  and `fft` needs more still. On a box that does have several cards, `--fsdp-devices` for
+  π<sub>0</sub>/π<sub>0.5</sub> is exercised (see the note below); `torchrun --nproc-per-node` for
+  molmoact2/abc still is not, so treat that one as an unvalidated path, not an inert one — a value
+  above `1` genuinely hands the job that many cards.
 - **The card is picked for you; `CUDA_VISIBLE_DEVICES` says which ones are on offer.** Each
   job exports `CUDA_VISIBLE_DEVICES` for the `GPUs` cards with the most free VRAM at launch
   (plus `CUDA_DEVICE_ORDER=PCI_BUS_ID`, so those indices mean the same thing to CUDA as they
@@ -174,6 +181,27 @@ openpi configs `pi0_yam` / `pi0_yam_lora` and `pi05_yam` / `pi05_yam_lora` respe
 training as `--data.repo-id`. You do **not** need to keep it consistent for normalization:
 the YAM config pins a fixed `asset_id` (`yam`), so `compute_norm_stats` writes and the server
 loads norm-stats under `assets/yam` regardless of the dataset name.
+
+**Multi-GPU needs a Blackwell-capable jax.** `GPUs > 1` shards the step over `--fsdp-devices`
+cards, and every gradient all-reduce then goes through NCCL. The jax openpi pins (0.5.3) and the
+NCCL that its `torch==2.7.1` pins (2.26.2) contain no sm_120 code and no PTX to JIT from, so on
+RTX PRO 6000 / RTX 5090 cards the first large all-reduce aborts the process — with a message
+pointing at a later allocation, since CUDA errors are sticky and asynchronous. This repo
+overrides jax to 0.6.2 and openpi's torch to 2.9.0 (NCCL 2.27.5) to fix that; if you ever see a
+multi-GPU run die at its first step, check the arch tables before anything else:
+
+```bash
+SP=.venv/lib/python3.12/site-packages
+cuobjdump --list-elf $SP/jax_plugins/xla_cuda12/xla_cuda_plugin.so | grep -oE 'sm_[0-9]+' | sort -uV
+cuobjdump --list-elf $SP/nvidia/nccl/lib/libnccl.so.2            | grep -oE 'sm_[0-9]+' | sort -uV
+```
+
+`sm_120` must appear in both. `NCCL_DEBUG=VERSION` additionally prints which NCCL actually got
+loaded — the `+cudaX.Y` suffix must be ≥ 12.8, since that is what gates sm_120 gencode.
+
+What has actually been run on the 8× RTX PRO 6000 box: `pi0_yam_lora` at `--fsdp-devices=2`, and
+a `psum` / `all_gather` / `psum_scatter` sweep from 1 MB to 512 MB across 7 cards. Larger
+`--fsdp-devices` values are not known-bad — they are simply not exercised yet.
 
 ### molmoact2
 

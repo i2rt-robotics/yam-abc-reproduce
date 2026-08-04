@@ -10,11 +10,12 @@ standard dataset, fine-tune a VLA policy, and run it on the real arms.
 - **Train** — policy backends wired in: **π<sub>0</sub> / π<sub>0.5</sub>** (openpi), **MolmoAct2**, and **ABC-DiT**.
 - **Deploy** — one transport-only client + a policy server per backend; swap policies by changing `--host/--port`.
 
-> **Scope: one station, one GPU.** Everything here is validated on a single-GPU station — one
-> box with one NVIDIA card (a 32 GB RTX 5090) doing collect, review, convert, train and serve.
+> **Scope: one station, one GPU.** The pipeline is validated end to end on a single-GPU station
+> — one box with one NVIDIA card (a 32 GB RTX 5090) doing collect, review, convert, train and serve.
 > Splitting the robot host from the policy server across two machines works and is documented
-> in [deploy.md](docs/deploy.md), but **multi-GPU training is untested**: leave the Train tab's
-> `GPUs` at `1`, and expect one GPU job at a time — see
+> in [deploy.md](docs/deploy.md). Multi-GPU π<sub>0</sub>/π<sub>0.5</sub> training (JAX FSDP) runs
+> on an 8× RTX PRO 6000 Blackwell box; **multi-GPU molmoact2/abc is still untested**, and on the
+> station itself there is one card, so expect one GPU job at a time — see
 > [One GPU at a time](docs/training.md#one-gpu-at-a-time).
 >
 > On a station with more than one card, every GPU job pins itself: a trainer takes the `GPUs`
