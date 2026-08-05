@@ -6,6 +6,7 @@ Serial-based discovery keeps device selection stable across reboots / USB re-enu
 
 from __future__ import annotations
 
+import logging
 import time
 
 import numpy as np
@@ -51,14 +52,45 @@ class V4L2Camera:
         if device is None:
             device = 0
 
-        self._cap = cv2.VideoCapture(device)
+        # Pin the V4L2 backend. Left to CAP_ANY, OpenCV takes whichever backend opens the
+        # device first, and for a /dev/videoN *path* -- what find_device_by_serial returns --
+        # that is regularly FFMPEG or GStreamer, whose CAP_PROP_* setters below are accepted
+        # and then ignored. The camera streams its own default mode instead, so the width /
+        # height / fps from cameras.yaml go missing with no error anywhere. Only the V4L2
+        # backend actually applies them.
+        self._cap = cv2.VideoCapture(device, cv2.CAP_V4L2)
+        if not self._cap.isOpened():
+            raise RuntimeError(
+                f"failed to open camera {name!r} (device={device}) on the V4L2 backend -- "
+                f"check the node exists and is a UVC device (`v4l2-ctl -d {device} --all`)"
+            )
+        # FOURCC first, and not just for tidiness: the pixel format decides which
+        # width/height/fps combinations the driver will offer at all. MJPG is what lets
+        # these cameras do full resolution above ~5 fps; raw YUYV cannot.
         if fourcc:
             self._cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*fourcc))
         self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
         self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
         self._cap.set(cv2.CAP_PROP_FPS, fps)
-        if not self._cap.isOpened():
-            raise RuntimeError(f"failed to open camera {name!r} (device={device})")
+        # V4L2 negotiates down to the nearest mode it supports rather than failing, so a
+        # request the camera cannot meet is otherwise invisible. Read back what we actually
+        # got. fps is advisory on some UVC drivers and reads back 0 -- don't cry wolf there.
+        got_w = int(self._cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        got_h = int(self._cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        got_fps = int(round(self._cap.get(cv2.CAP_PROP_FPS)))
+        if (got_w, got_h) != (width, height) or (got_fps and got_fps != fps):
+            logging.warning(
+                "camera %r: asked for %dx%d@%dfps, driver gave %dx%d@%sfps -- "
+                "`v4l2-ctl -d %s --list-formats-ext` lists the modes it supports",
+                name,
+                width,
+                height,
+                fps,
+                got_w,
+                got_h,
+                got_fps or "?",
+                device,
+            )
 
     def _grab_rgb(self) -> tuple[np.ndarray, float]:
         import cv2
