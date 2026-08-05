@@ -18,10 +18,14 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# opencv-python-headless, not opencv-python: lerobot depends on the headless build and
-# both ship the same `cv2` module, so declaring the GUI build here installs two
-# providers of one import and lets install order decide which wins. No first-party
-# code uses cv2's GUI API (imshow/waitKey) -- frames are streamed via imencode.
+# opencv-python-headless, not opencv-python: the two ship the same `cv2` module, so mixing
+# them puts two providers of one import in the venv and lets install order decide which
+# wins. headless is the build the whole tree agrees on -- lerobot requires it
+# unconditionally and cannot be talked out of it -- so the GUI build is dropped outright in
+# [tool.uv] override-dependencies below, which is what keeps every sync down to one OpenCV.
+# No first-party code uses cv2's GUI API (imshow/waitKey) -- frames are streamed via
+# imencode -- and headless also spares every headless box a libGL dependency it would
+# otherwise need just to `import cv2`.
 # pyrealsense2 lives here rather than in an extra of its own: RealSense is the default
 # camera type, every import of it is lazy (camera/discovery.py, camera/realsense.py,
 # doctor.py), and it is one wheel with cp312 builds for x86_64/aarch64/win_amd64 -- so a
@@ -217,9 +221,23 @@ build-constraint-dependencies = ["scikit-build-core<0.10"]
 # Verified on xdof-dgx02 (8x RTX PRO 6000 Blackwell, sm_120, driver 595.71.05 / CUDA 13.2):
 # jax 0.6.2 with NCCL 2.27.5 clears a psum sweep to 512 MB where 0.5.3 with NCCL 2.26.2
 # aborts, and cuobjdump lists sm_120 in both the XLA plugin and libnccl.so.2.
+#
+# The opencv-python line is a *deletion*, not a pin, and the marker is meant to be
+# unsatisfiable. An override replaces a requirement wholesale, markers included, so
+# attaching one that is never true is how uv is told to drop a dependency it has no
+# `exclude` for. opencv-python and opencv-python-headless ship the same `cv2` module, and
+# two providers of one import let install order decide which wins -- openpi asks for
+# opencv-python (which resolves to 5.x) and mani-skill's sapien asks for it too, while
+# lerobot requires headless unconditionally and cannot be talked out of it. Neutralising
+# the GUI build leaves exactly one OpenCV in every environment. It stays visible in
+# uv.lock and `uv export` as a line carrying `; sys_platform == 'never'`, which `uv sync`
+# then skips -- that ghost entry is the mechanism working, not a leftover to tidy up.
+# The trade-off: nothing can pull the GUI build in any more, so if some future dependency
+# genuinely needs cv2's imshow/waitKey, this line is why it is missing.
 override-dependencies = [
     "jax[cuda12]==0.6.2",
     "ml-dtypes>=0.5.3",
+    "opencv-python; sys_platform == 'never'",
     "tensorstore==0.1.74",
     "mujoco>=3.1.0",
     "rerun-sdk>=0.32.2",

@@ -73,7 +73,7 @@ second machine or a second checkout.) If the backend isn't installed you get a
 `... is not installed` error naming the exact command to run, instead of an ImportError
 several minutes into training.
 
-Three consequences of sharing one venv:
+Two consequences of sharing one venv:
 
 - `rerun-sdk` is de-pinned to `>=0.32.2` in `[tool.uv] override-dependencies`, so i2rt can
   coexist with the `lerobot==0.5.1` openpi pins. This affects only lerobot's own Rerun-based
@@ -85,12 +85,13 @@ Three consequences of sharing one venv:
   always fine. torch 2.9.0 brings NCCL 2.27.5 and cuDNN 9.10.2.21, which do. The reasoning, and
   why the torch pin has to live in the vendored `pyproject.toml` rather than in the override
   list, is in the comment above `override-dependencies`.
-- openpi depends on `opencv-python` while `camera`/`gui` use `opencv-python-headless`. Both
-  ship the same `cv2` module, so `--group openpi` together with either extra puts two providers
-  of one import in the venv and install order decides which wins. If `import cv2` starts
-  failing after an openpi sync, reinstall the provider you want to win
-  (`uv sync --all-extras --group openpi --reinstall-package opencv-python-headless`). On a box
-  that needs neither `camera` nor `gui`, the clash cannot arise in the first place.
+- Every group installs the same OpenCV, `opencv-python-headless`, and only that one. It is
+  the build the tree can agree on — `lerobot` requires it unconditionally — while openpi and
+  `mani-skill`'s `sapien` both ask for `opencv-python`, which ships the *same* `cv2` module
+  and would leave install order to decide which import wins. The GUI build is therefore
+  dropped in `[tool.uv] override-dependencies`, by overriding it with a marker that is never
+  true. You will still see `opencv-python ... ; sys_platform == 'never'` in `uv.lock` and
+  `uv export`; that is the mechanism, and `uv sync` skips it.
 
 Pick the **policy** backend, fill the fields, then **Launch Train** — the loss curve and
 logs stream live, with a status pill, progress + step counter, and the launched command
