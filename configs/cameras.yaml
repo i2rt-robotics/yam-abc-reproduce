@@ -1,0 +1,48 @@
+# Camera roster for a YAM-ABC-Reproduce station.
+#
+# type:    decxin_mono | decxin_stereo | realsense | mock
+# role:    top | left | right | wrist   (logical placement; drives schema keys)
+# mode:    mono | stereo
+# serial:  device serial for stable selection (decxin: ID_SERIAL_SHORT; realsense: S/N)
+#
+# Pick & place setup: one overhead RealSense + a left/right side pair.
+cameras:
+  - name: top
+    type: realsense
+    role: top
+    mode: mono
+    serial: "128422272025"   # RealSense S/N (yam-abc-cameras)
+    width: 640
+    height: 480
+    fps: 30
+    enable_depth: false
+
+  - name: left
+    type: realsense
+    role: left
+    mode: mono
+    serial: "218622272630"
+    width: 640
+    height: 480
+    fps: 30
+    enable_depth: false
+
+  - name: right
+    type: realsense
+    role: right
+    mode: mono
+    serial: "218622274205"
+    width: 640
+    height: 480
+    fps: 30
+    enable_depth: false
+
+  # Example stereo entry (one wide frame split into left/right). Uncomment to use:
+  # - name: front
+  #   type: decxin_stereo
+  #   role: left
+  #   mode: stereo
+  #   serial: null
+  #   width: 2560        # full side-by-side width; each eye becomes width//2
+  #   height: 720
+  #   fps: 30

@@ -1,0 +1,245 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "yam-abc-reproduce"
+version = "0.1.0"
+description = "YAM-ABC-Reproduce: a teleop -> train -> deploy pipeline for the YAM (i2rt) robot"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+license = { text = "Apache-2.0" }
+authors = [{ name = "i2rt robotics" }]
+dependencies = [
+    "numpy>=1.24",
+    "pyyaml>=6.0",
+    "av>=12",
+    "i2rt",
+]
+
+[project.optional-dependencies]
+# opencv-python-headless, not opencv-python: lerobot depends on the headless build and
+# both ship the same `cv2` module, so declaring the GUI build here installs two
+# providers of one import and lets install order decide which wins. No first-party
+# code uses cv2's GUI API (imshow/waitKey) -- frames are streamed via imencode.
+# pyrealsense2 lives here rather than in an extra of its own: RealSense is the default
+# camera type, every import of it is lazy (camera/discovery.py, camera/realsense.py,
+# doctor.py), and it is one wheel with cp312 builds for x86_64/aarch64/win_amd64 -- so a
+# separate extra bought nothing but a second flag to remember.
+camera = ["opencv-python-headless>=4.8,<5", "pyudev>=0.24", "pyrealsense2>=2.54"]
+gui = ["fastapi>=0.110", "uvicorn[standard]>=0.27", "pydantic>=2.6", "websockets>=12", "opencv-python-headless>=4.8,<5"]
+lerobot = ["lerobot[dataset]>=0.5"]     # LeRobot dataset v3.0 (pi / molmoact2 consume this)
+abc = ["mcap>=1.4", "protobuf>=5", "mcap-protobuf-support>=0.5"]  # ABC release-mcap writer (data format only, not the policy -- see abc-policy). `av` is a base dependency.
+convert = ["lerobot[dataset]>=0.5", "mcap>=1.4", "protobuf>=5", "mcap-protobuf-support>=0.5"]
+# Client-side policy deployment (robot host). Talks to any policy server over the
+# openpi websocket protocol; needs no torch/jax. NOTE: `openpi-client` is also an
+# unrelated package on PyPI -- [tool.uv.sources] is what pins it to the submodule.
+deploy = ["websockets>=12", "msgpack>=1.0", "openpi-client"]
+
+[dependency-groups]
+dev = ["pytest>=8.0", "ruff>=0.4", "httpx>=0.27", "opencv-python-headless>=4.8,<5"]
+
+# --- Policy backends: one dependency-group per third_party submodule ----------------
+# Each installs a backend's full train/serve stack into *this* venv, so you no longer
+# need `cd third_party/... && uv sync`. They pin incompatible torch/jax builds and are
+# therefore mutually exclusive -- see [tool.uv] conflicts below.
+#
+# They are groups, not extras, precisely because of that. Extras are things you combine;
+# keeping the backends out of that namespace is what lets `uv sync --all-extras` stay
+# meaningful -- it means "every feature, no policy backend". Add exactly one:
+#   uv sync --all-extras --group openpi | --group molmoact2-train | --group abc-policy
+#   uv sync --all-extras --no-extra lerobot --no-extra convert --group molmoact2
+#
+# pi0 / pi0.5 (JAX). Editable from third_party/policy/openpi, which pulls in
+# openpi-client as its own dependency.
+openpi = [
+    "openpi",
+    # Same hazard the molmoact2-train group guards against below, mirrored onto openpi's
+    # torch 2.7.1: torchcodec declares NO torch dependency, so nothing keeps the pair
+    # ABI-matched. The lerobot 0.5.1 that openpi pins only asks for >=0.3.0,<0.11.0, and uv
+    # takes the ceiling -- 0.10.0, built against torch 2.10 -- which then fails to load with
+    # "undefined symbol: c10::MessageLogger::stream()" (a symbol torch grew after 2.7.1).
+    # 0.4.x is the release that pairs with torch 2.7. Verified on Ubuntu 22.04 / FFmpeg 4.4:
+    # 0.10.0 cannot decode at all, 0.4.0 decodes LeRobot frames fine.
+    "torchcodec>=0.4,<0.5",
+    # openpi's maybe_download() special-cases the gs://openpi-assets bucket (the pi0/pi05
+    # base checkpoints) and shells out to `gsutil -m cp -r`, falling back to gcsfs with a
+    # warning when gsutil is not on PATH -- the fallback is the path upstream added that
+    # comment about avoiding for this bucket's auth. Nothing else in the tree provides it,
+    # so declare it here; the venv's bin/ then satisfies shutil.which("gsutil"). Bonus:
+    # gsutil reads http_proxy/https_proxy/no_proxy itself (boto/connection.py,
+    # gslib/utils/boto_util.py:GetProxyInfo), so the checkpoint download is proxy-clean.
+    "gsutil",
+]
+# molmoact2 *training* (third_party/policy/molmoact2/experiments, package `ai2-molmo`),
+# editable. `ai2-molmo` alone is NOT enough to run launch_scripts/train_lerobot.py -- the
+# entries below are what that entrypoint actually imports, and upstream declares only some
+# of them. Verified against the import graph, not just resolution.
+molmoact2-train = [
+    # wandb / beaker-py / torchmetrics / safetensors / scikit-learn / msgspec live in
+    # ai2-molmo's own `train` extra; olmo.train.run_trainer and olmo.models.model import
+    # them at module scope.
+    "ai2-molmo[train]",
+    "debugpy",                  # train_lerobot.py:14 imports it top-level, undeclared upstream
+    "lerobot[dataset]>=0.5",    # launch_scripts/lerobot_utils/stats.py -> lerobot.datasets
+    # sm_120 (RTX 5090) needs CUDA >= 12.8. ai2-molmo leaves torch unpinned, and without a
+    # floor the resolver can settle on torch 2.7.1/cu126, which has no sm_120 kernels.
+    "torch>=2.10",
+    # torchcodec declares NO torch dependency, so nothing keeps the pair ABI-matched;
+    # floor it to the release that goes with torch 2.11 (lerobot_utils/env.py runs a
+    # torchcodec preflight -- the reason for the LD_LIBRARY_PATH nvidia/*/lib dance).
+    "torchcodec>=0.11",
+    # Serving molmoact2 reuses examples/yam/host_server_yam.py, which imports fastapi at
+    # module scope (yam_abc_reproduce/deploy/servers/molmoact_server.py execs it).
+    "fastapi>=0.116",
+    "uvicorn[standard]>=0.35",
+]
+# molmoact2 *inference server* (third_party/policy/molmoact2). Mirrored from that
+# submodule's pyproject.toml instead of installed editable: it declares no
+# [build-system], so uv treats it as a non-package (which is why `uv sync` works
+# inside it), and its flat layout -- including a top-level `lerobot/` that would
+# shadow the real one -- cannot be auto-discovered by setuptools. Keep in sync by hand.
+molmoact2 = [
+    "torch==2.5.1",
+    "torchvision==0.20.1",
+    "transformers>=4.57,<4.58",
+    "accelerate>=1.0",
+    "safetensors>=0.4",
+    "huggingface-hub[cli]>=0.36",
+    "hf-transfer>=0.1.8",
+    "pillow>=10",
+    "numpy>=1.26,<3",
+    "einops>=0.7",
+    "sentencepiece>=0.2",
+    "protobuf>=4.25",
+    "fastapi>=0.116",
+    "uvicorn[standard]>=0.35",
+    "json-numpy>=2.1.0",
+    "mani-skill>=3.0.1",
+    "tyro>=1.0.13",
+    "imageio>=2.37.3",
+    "transforms3d>=0.4.2",
+    "gymnasium>=1.3.0",
+]
+# ABC-DiT train + serve (third_party/policy/abc). Mirrored for the same reason as
+# molmoact2 above -- that submodule declares no [build-system] either. Keep in sync
+# by hand; the one deliberate omission is its unpinned `numpy`, already a base
+# dependency here. Distinct from the `abc` extra, which is only the MCAP writer.
+abc-policy = [
+    "torch==2.11.0+cu128",
+    "torchcodec==0.11.0+cpu",
+    "mujoco",
+    "mujoco-warp",
+    "warp-lang",
+    "mjviser",
+    "viser",
+    "imageio[ffmpeg]",
+    "ftfy",
+    "regex",
+    "tyro",
+    "mcap",
+    "mcap-protobuf-support",
+    "wandb",
+]
+
+[tool.uv.sources]
+# Editable installs straight out of the submodules -- no `uv sync` inside third_party/.
+# uv validates every path below on each sync, even for extras you did not select, so all
+# four submodules must be checked out (`git submodule update --init --recursive`).
+i2rt = { path = "third_party/i2rt", editable = true }
+openpi = { path = "third_party/policy/openpi", editable = true }
+openpi-client = { path = "third_party/policy/openpi/packages/openpi-client", editable = true }
+ai2-molmo = { path = "third_party/policy/molmoact2/experiments", editable = true }
+# CUDA wheel indexes, scoped to the group that asks for them: torch==2.11.0+cu128 and
+# torchcodec==0.11.0+cpu exist only on the PyTorch indexes, and molmoact2 wants a
+# cu121 build. Unscoped, these would drag every other resolution onto the same index.
+torch = [
+    { index = "pytorch-cu128", group = "abc-policy" },
+    { index = "pytorch-cu121", group = "molmoact2" },
+]
+torchvision = [{ index = "pytorch-cu121", group = "molmoact2" }]
+torchcodec = [{ index = "pytorch-cpu", group = "abc-policy" }]
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu121"
+url = "https://download.pytorch.org/whl/cu121"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv]
+# i2rt depends on ruckig==0.15.3, which ships no prebuilt wheel; its sdist build breaks
+# under scikit-build-core >= 0.10 (it rejects the package's deprecated `cmake.targets`).
+# This constraint makes uv build it with the older backend automatically -- no manual
+# pre-installs, no --no-build-isolation. i2rt declares the same constraint, but uv only
+# honours build-constraint-dependencies from the workspace root, so it has to be repeated
+# here. Verified: with this line a clean install compiles ruckig in ~20 s; without it the
+# build fails with "Use build.targets instead of cmake.targets".
+build-constraint-dependencies = ["scikit-build-core<0.10"]
+
+# Same story: uv ignores a path dependency's own [tool.uv] table, so openpi's overrides
+# have to be restated here or its jax stack does not resolve. rerun-sdk is ours: i2rt
+# needs >=0.32.2 while the lerobot==0.5.1 that openpi pins caps it at <0.27, and i2rt is
+# now a base dependency present in every resolution. Only lerobot's own Rerun-based
+# dataset viewer (`lerobot-dataset-viz`) touches that API, so the de-pin does not affect
+# training or serving.
+override-dependencies = [
+    "ml-dtypes==0.4.1",
+    "tensorstore==0.1.74",
+    "mujoco>=3.1.0",
+    "rerun-sdk>=0.32.2",
+]
+
+# The policy backends pin mutually incompatible builds -- torch 2.7.1 (openpi) vs
+# 2.11.0+cu128 (abc) vs 2.5.1+cu121 (molmoact2 server) vs 2.11.0 on the CUDA 13 runtime
+# (molmoact2 training), and transformers 4.57.x vs 5.x -- so no single environment can hold
+# two of them. Declaring the conflicts lets one lockfile carry a separate resolution per
+# backend. Because they are groups, `uv sync --all-extras` stays valid and simply installs
+# no backend; add at most one `--group`. Remember `uv sync` PRUNES everything you leave off
+# the command line, the group included.
+conflicts = [
+    [
+        { group = "openpi" },
+        { group = "molmoact2" },
+        { group = "molmoact2-train" },
+        { group = "abc-policy" },
+    ],
+    # molmoact2's torchvision==0.20.1 predates the >=0.21 that every lerobot >=0.5 wants.
+    [{ group = "molmoact2" }, { extra = "lerobot" }],
+    [{ group = "molmoact2" }, { extra = "convert" }],
+]
+
+[project.scripts]
+yam-abc-gui = "yam_abc_reproduce.cli:gui"
+yam-abc-teleop = "yam_abc_reproduce.cli:teleop"
+yam-abc-convert = "yam_abc_reproduce.cli:convert"
+yam-abc-viz = "yam_abc_reproduce.cli:viz"
+yam-abc-cameras = "yam_abc_reproduce.cli:cameras"
+yam-abc-deploy = "yam_abc_reproduce.deploy.run:deploy"
+yam-abc-doctor = "yam_abc_reproduce.doctor:main"
+
+[tool.setuptools.packages.find]
+include = ["yam_abc_reproduce*"]
+
+[tool.setuptools.package-data]
+yam_abc_reproduce = ["gui/static/*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "UP"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = ["ignore::DeprecationWarning"]

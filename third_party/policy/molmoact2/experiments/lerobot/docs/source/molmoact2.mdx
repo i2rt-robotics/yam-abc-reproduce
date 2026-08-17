@@ -1,0 +1,155 @@
+# MolmoAct2
+
+MolmoAct2 is available in this vendored LeRobot package as an inference policy.
+Use the parent MolmoAct2 repository for training and fine-tuning, then use LeRobot
+for simulator rollouts, real-robot execution, and async inference.
+
+## Install
+
+From the MolmoAct2 repository root:
+
+```bash
+cd lerobot
+pip install -e ".[async]"
+cd ..
+export PYTHONPATH="$PWD:$PWD/lerobot/src:${PYTHONPATH:-}"
+```
+
+## Policy Configuration
+
+Use `policy.type=molmoact2` and pass the MolmoAct2 checkpoint with
+`policy.checkpoint_path`.
+
+```bash
+--policy.type=molmoact2 \
+--policy.checkpoint_path=allenai/MolmoAct2 \
+--policy.device=cuda \
+--policy.inference_action_mode=continuous \
+--policy.norm_tag=libero
+```
+
+Common policy fields:
+
+| Field | Default | Notes |
+| --- | --- | --- |
+| `policy.checkpoint_path` | `allenai/MolmoAct2` | Hub ID or local MolmoAct2 checkpoint directory. |
+| `policy.seq_len` | checkpoint default | Optional local-checkpoint override for max sequence length. |
+| `policy.inference_action_mode` | `continuous` | `continuous` or `discrete`. |
+| `policy.discrete_action_tokenizer` | `allenai/MolmoAct2-FAST-Tokenizer` | Used only for discrete action inference. |
+| `policy.norm_tag` | empty | Required when the checkpoint contains normalization metadata. |
+| `policy.enable_depth_reasoning` | `false` | Enables `robot_depth_action` inference for depth-capable checkpoints. |
+| `policy.enable_inference_cuda_graph` | `true` | Used by the HF-backed continuous inference path. |
+| `policy.num_steps` | checkpoint default | Optional flow-matching step override. |
+
+Use `allenai/MolmoAct2-Think` with `policy.enable_depth_reasoning=true` for depth
+reasoning checkpoints.
+
+## Simulator Rollout
+
+Use `lerobot-eval` for simulator rollouts:
+
+```bash
+lerobot-eval \
+  --policy.type=molmoact2 \
+  --policy.checkpoint_path=allenai/MolmoAct2 \
+  --policy.device=cuda \
+  --policy.seq_len=2100 \
+  --policy.norm_tag=libero \
+  --policy.inference_action_mode=continuous \
+  --policy.enable_inference_cuda_graph=true \
+  --env.type=libero \
+  --eval.n_episodes=10 \
+  --eval.batch_size=1
+```
+
+If the environment uses different observation names than the policy expects, pass
+`--rename_map` to map environment keys to LeRobot policy keys.
+
+## Real-Robot Rollout
+
+Use `lerobot-record` for synchronous real-robot execution and optional recording:
+
+```bash
+lerobot-record \
+  --robot.type=so101_follower \
+  --robot.port=/dev/ttyACM0 \
+  --robot.id=so101 \
+  --robot.cameras="{front: {type: opencv, index_or_path: 0, width: 640, height: 480, fps: 30}, wrist: {type: opencv, index_or_path: 1, width: 640, height: 480, fps: 30}}" \
+  --policy.type=molmoact2 \
+  --policy.checkpoint_path=allenai/MolmoAct2-SO100_101 \
+  --policy.device=cuda \
+  --policy.norm_tag=so100_so101_molmoact2 \
+  --policy.inference_action_mode=continuous \
+  --policy.enable_inference_cuda_graph=true \
+  --dataset.single_task="pick up the object" \
+  --dataset.fps=30 \
+  --dataset.num_episodes=5
+```
+
+The camera names should match the names expected by the checkpoint or be remapped
+before reaching the policy.
+
+## Async Inference
+
+MolmoAct2 is registered in the async inference policy allowlist. The async server
+loads MolmoAct2 by treating `pretrained_name_or_path` as `checkpoint_path`, so Hub
+IDs such as `allenai/MolmoAct2` work without a separate LeRobot `config.json`.
+
+Start a policy server:
+
+```bash
+python -m lerobot.async_inference.policy_server \
+  --host=127.0.0.1 \
+  --port=8080 \
+  --fps=30
+```
+
+Start the robot client:
+
+```bash
+python -m lerobot.async_inference.robot_client \
+  --server_address=127.0.0.1:8080 \
+  --robot.type=so101_follower \
+  --robot.port=/dev/ttyACM0 \
+  --robot.id=so101 \
+  --robot.cameras="{front: {type: opencv, index_or_path: 0, width: 640, height: 480, fps: 30}, wrist: {type: opencv, index_or_path: 1, width: 640, height: 480, fps: 30}}" \
+  --policy_type=molmoact2 \
+  --pretrained_name_or_path=allenai/MolmoAct2-SO100_101 \
+  --policy_kwargs="{norm_tag: so100_so101_molmoact2, inference_action_mode: continuous, enable_inference_cuda_graph: true}" \
+  --policy_device=cuda \
+  --actions_per_chunk=10 \
+  --chunk_size_threshold=0.5 \
+  --aggregate_fn_name=weighted_average \
+  --task="pick up the object"
+```
+
+`actions_per_chunk` is capped by the chunk produced by the checkpoint. Lower values
+reduce client queue length and can improve reactivity; higher values reduce server
+requests.
+
+## RTC
+
+LeRobot RTC is a prefix-guided chunking method exposed through `RTCConfig` for
+policies that implement RTC-specific flow-matching guidance. MolmoAct2 uses the
+same LeRobot action-chunk execution interface through `predict_action_chunk` and
+the async client/server aggregation path. It does not expose a separate
+MolmoAct2-specific RTC guidance flag.
+
+## Fine-Tuning
+
+Fine-tuning is handled by the parent repository:
+
+```bash
+torchrun \
+  --standalone --nproc-per-node=8 \
+  launch_scripts/train_lerobot.py \
+  allenai/MolmoAct2 \
+  my_robot \
+  --seq_len=2100 \
+  --packing=true \
+  --ft_vlm=true \
+  --ft_action_expert=true
+```
+
+See the parent `README.md` for registering new mixtures and for full fine-tuning,
+LoRA fine-tuning, and action-expert-only fine-tuning commands.

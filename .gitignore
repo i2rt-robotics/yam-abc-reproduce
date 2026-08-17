@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+
+# Tooling
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# YAM-ABC-Reproduce data + artifacts (never commit recordings or checkpoints).
+# Anchored to repo root so they don't shadow the yam_abc_reproduce/data source package.
+/data/
+/episodes/
+/checkpoints/
+/runs/
+*.mp4
+*.rrd
+*.safetensors
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/

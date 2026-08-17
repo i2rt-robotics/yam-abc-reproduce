@@ -1,0 +1,63 @@
+# YAM-ABC-Reproduce YAM station config.
+#
+# Robot is reached through i2rt (see yam_abc_reproduce/robot/yam_adapter.py). CAN channels
+# follow the YAM udev convention: leader = can_lead_l/r, follower = can_left/right.
+
+robot:
+  type: yam                 # "yam" for hardware, "mock" for no-hardware dev
+  arm_name: left            # schema prefix for the single follower arm
+  arm_type: yam             # i2rt ArmType: yam | yam_pro | yam_ultra | big_yam
+  num_arm_joints: 6
+  leader_gripper_type: yam_teaching_handle  # (only used by motorized yam_lead_* leaders)
+  bilateral_kp: 0.0         # ignored for passive-GELLO leaders (no motors)
+  # Robots (follower arm + its gripper) and Controllers (leader + robot it drives).
+  # CAN channels are derived from type: yam_left->can_left, passive_gello_left->can_lead_l.
+  # `gripper_limits: [closed, open]` (motor rad) pins a follower gripper's travel.
+  # Unpinned, i2rt re-measures it per arm on every Start Teleop (YAM grippers ship
+  # needs_calibration: true) by driving into both stops; a blocked jaw or heavy friction
+  # collapses the span, so the trigger's [0,1] maps onto almost no motion. Read each arm's
+  # range from the startup log ("follower gripper ... limits="), check both spans are near
+  # the ~6.57 rad stroke (a collapsed one warns), then paste them here.
+  robots:
+    - {type: yam_left,  gripper: flexible_4310}
+    - {type: yam_right, gripper: flexible_4310}
+  # Leaders are PASSIVE GELLO arms (motorless CAN encoders, broadcast 0x50F), not
+  # motorized yam_lead_* arms — so they use the PassiveGelloLeader driver.
+  controllers:
+    - {type: passive_gello_left,  controls: yam_left}
+    - {type: passive_gello_right, controls: yam_right}
+  # A mobile GELLO rig uses mobile_gello_left/right instead — same driver, buses and
+  # gripper, but each side carries its own built-in joint_signs (right arm mirrored),
+  # copied from the fleet's passive_gello driver. The two sides disagree on the gripper
+  # element, which is harmless (see leader_gripper below). Adding `joint_signs: [...]` to
+  # a controller entry overrides either table.
+  # Passive-GELLO calibration. Encoders: device 0..5 = arm joints, 6 = gripper.
+  # angle = sign*raw_rad. The home zero is stored in each encoder's EEPROM (NOT here):
+  # hold each leader at the follower's home pose and run
+  #   python scripts/calibrate_gello.py zero --controller left|right
+  # joint_signs match each joint's direction to the follower (found empirically with
+  # `calibrate_gello.py monitor` + live teleop). Arm joints 0,1,2,5 count opposite to
+  # the follower -> sign -1; joints 3,4 match. Desk rigs only; a mobile rig's per-side
+  # tables win, since one list can't describe two mirrored arms.
+  leader_joint_signs:   [-1, -1, 1, 1, -1, -1, 1]
+  # The trigger normalizes by |angle| against min(|closed_rad|, 0.67): released (0 rad) =
+  # 1.0 open, |angle| at the range = 0.0 closed. So trigger direction doesn't matter and the
+  # gripper's joint_signs entry is inert; open_rad is informational (released is always 0).
+  # Measured on the bench: released grip_raw ~ 0.0, fully squeezed ~ -0.713.
+  leader_gripper:       [6, -0.713, 0.0]   # [device_id, closed_rad, open_rad]
+
+cameras_config: configs/cameras.yaml
+
+control_hz: 30.0
+
+# Pose the followers ramp to before a policy takes over (Deploy tab "home pose" /
+# `yam-abc-deploy --home-pose`), so the policy's first observation is in-distribution.
+# TOP-LEVEL key — not under `robot:`. One entry per arm joint plus its gripper, in
+# `robots` order, i.e. 14 values here: [left j0..j5, left grip, right j0..j5, right grip];
+# grippers are normalized 0 (closed) .. 1 (open). Same layout as the policy state vector.
+# Read the values off the ARM monitor (`pos` row) with the arms held at the pose your
+# demonstrations start from, or from an episode's first frame. See docs/deploy.md.
+# deploy_home_pose: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0,  0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]
+save_root: data/episodes
+task_name: unknown
+data_format: default

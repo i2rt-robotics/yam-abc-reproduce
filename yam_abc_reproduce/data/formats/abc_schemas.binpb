@@ -1,0 +1,52 @@
+
+ÿ
+google/protobuf/timestamp.protogoogle.protobuf";
+	Timestamp
+seconds (Rseconds
+nanos (RnanosB…
+com.google.protobufBTimestampProtoPZ2google.golang.org/protobuf/types/known/timestamppbø¢GPBªGoogle.Protobuf.WellKnownTypesbproto3
+Í
+
+task.protogoogle/protobuf/timestamp.proto"I
+
+Annotation-
+	timestamp (2.google.protobuf.Timestamp
+data (	"K
+Instructions-
+	timestamp (2.google.protobuf.Timestamp
+data (	bproto3
+‘
+ foxglove/CameraCalibration.protofoxglovegoogle/protobuf/timestamp.proto"¹
+CameraCalibration-
+	timestamp (2.google.protobuf.Timestamp
+frame_id	 (	
+width (
+height (
+distortion_model (		
+D (	
+K (	
+R (	
+P (bproto3
+Å
+foxglove/CompressedVideo.protofoxglovegoogle/protobuf/timestamp.proto"p
+CompressedVideo-
+	timestamp (2.google.protobuf.Timestamp
+frame_id (	
+data (
+format (	bproto3
+Ö
+robot.protogoogle/protobuf/timestamp.proto"“
+
+RobotState-
+	timestamp (2.google.protobuf.Timestamp
+position (
+velocity (
+acceleration (
+torque (
+pose ("‡
+GripperState-
+	timestamp (2.google.protobuf.Timestamp
+position (
+velocity (
+acceleration (
+torque (bproto3

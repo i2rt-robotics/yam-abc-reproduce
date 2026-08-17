@@ -1,0 +1,60 @@
+# gitignore for MolmoAct2
+
+
+# Local model / data downloads (HF snapshots, checkpoints)
+models/
+checkpoints/
+data/
+outputs/
+logs/
+wandb/
+
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+dist/
+build/
+*.egg
+
+# Virtual environments (uv)
+.venv/
+venv/
+env/
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Server / client runtime
+logs/
+*.log
+episode_log.xlsx
+
+# IDE & editors
+.vscode/
+.idea/
+.cursor/
+*.swp
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints/
+
+# sim_eval assets (robot meshes, URDFs) — download via sim_eval/scripts/download_assets.py
+sim_eval/assets/
+sim_eval/outputs/
+
+# Scratch / duplicates
+*.tmp
+* copy.*

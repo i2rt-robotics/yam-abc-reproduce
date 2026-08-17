@@ -1,0 +1,27 @@
+# Python deps for the bimanual YAM closed-loop eval client (examples/yam).
+# Install into the environment that drives the robot, e.g.:
+#     pip install -r examples/yam/requirements.txt
+#
+# Two deps are NOT on PyPI and must be installed separately:
+#   * i2rt   — YAM low-level motor/CAN driver:  https://github.com/i2rt-robotics/i2rt
+#   * lerobot (allenai molmoact2-policy branch) — only needed for the optional
+#     end-of-session dataset conversion:
+#       pip install "git+https://github.com/allenai/lerobot.git@molmoact2-policy"
+
+numpy
+torch
+transformers
+huggingface_hub
+hf_transfer
+json_numpy
+requests
+opencv-python
+Pillow
+h5py
+omegaconf
+tyro
+pyzmq
+tqdm
+
+# RealSense camera SDK (needed unless you only run against pre-recorded obs).
+pyrealsense2

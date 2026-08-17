@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>YAM-ABC-Reproduce</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div class="topbar">
+    <div class="brand"><span class="mark"></span><span class="name">YAM-ABC-Reproduce</span></div>
+    <nav class="tabs">
+      <button class="on" data-tab="collect">Collect</button>
+      <button data-tab="train">Train</button>
+      <button data-tab="deploy">Deploy</button>
+      <button data-tab="review">Review</button>
+    </nav>
+    <div class="spacer"></div>
+    <div class="conn" id="arm-box" title="arm/leader status"><span id="arm-txt">ARM —</span></div>
+    <div class="conn" id="cam-box" title="camera health - click for details"><span id="cam-txt">CAM -</span></div>
+    <div class="conn" title="GPU memory used / total (percent) · compute utilization"><span id="gpu-txt">GPU —</span></div>
+    <div class="conn"><span class="dot" id="conn-dot"></span><span id="conn-txt">connecting…</span></div>
+  </div>
+
+  <!-- COLLECT: left config rail + camera stage -->
+  <div class="body-row panel on" data-panel="collect">
+    <aside class="rail">
+      <div class="rail-head"><h2>Station</h2></div>
+      <div id="rail-body"></div>
+    </aside>
+    <div class="stage" id="stage"></div>
+  </div>
+
+  <!-- COLLECT: per-arm live telemetry. Each leader's own buttons and trigger (the tray's
+       are merged across arms), the follower's joints + gripper, and the action sent to that
+       arm. Collapsible so it doesn't eat stage space. -->
+  <details class="armmon" id="armmon" open>
+    <summary>Arms · live joints <span class="hint" id="armmon-hint">idle</span></summary>
+    <div class="armmon-grid" id="armmon-grid"></div>
+  </details>
+
+  <div class="tray" id="tray">
+    <div class="field">
+      <span class="cap">Teleop</span>
+      <div class="controls">
+        <button class="btn primary" id="btn-teleop">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          <span id="teleop-label">Start Teleop</span>
+        </button>
+      </div>
+    </div>
+    <div class="field">
+      <span class="cap">Record</span>
+      <div class="controls">
+        <button class="btn rec" id="btn-rec" disabled><span class="rec-dot"></span><span id="rec-label">Start Recording</span></button>
+        <div class="lamp" id="rec-lamp"><span class="d"></span><span id="rec-lamp-txt">idle</span></div>
+      </div>
+    </div>
+    <div class="field">
+      <span class="cap">Handle</span>
+      <div class="controls">
+        <span class="ind" id="ind-top"><i></i>TOP · sync</span>
+        <span class="ind" id="ind-second"><i></i>2ND · rec</span>
+        <div class="trig" title="trigger"><span id="trig-fill"></span></div>
+      </div>
+    </div>
+
+    <div class="spacer"></div>
+
+    <div class="readouts">
+      <div class="field">
+        <span class="cap">Episodes</span>
+        <div class="controls"><span class="v tnum" id="eps">0</span></div>
+      </div>
+      <div class="field">
+        <span class="cap">Setup</span>
+        <div class="controls">
+          <button class="btn ghost" id="btn-preview" title="Open cameras for preview (no robot)">Preview</button>
+          <button class="btn ghost" id="zero-l" title="Zero the LEFT passive-GELLO leader's encoders, gripper included (writes encoder EEPROM). Hold it at the follower's home pose with the trigger released.">Zero L</button>
+          <button class="btn ghost" id="zero-r" title="Zero the RIGHT passive-GELLO leader's encoders, gripper included (writes encoder EEPROM). Hold it at the follower's home pose with the trigger released.">Zero R</button>
+        </div>
+      </div>
+      <div class="field">
+        <span class="cap">Recovery</span>
+        <div class="controls">
+          <button class="btn power-off" id="reset-can" title="Bounce the CAN buses (OS-level) — for a wedged or flaky bus; does not touch the arms.">Reset CAN</button>
+          <button class="btn power-off" id="power-off-arms" title="De-energize both follower arms (motor torque off) — the arms go limp, so support them before moving.">Power Off Arms</button>
+          <button class="btn power-off" id="reset-session" title="Recover after E-STOP or a failed start: stops the loop, releases the arms (gravity-compensated float), and resets CAN so the next Start Teleop rebuilds cleanly (no GUI restart).">Reset Session</button>
+        </div>
+      </div>
+      <div class="field">
+        <span class="cap">Session</span>
+        <div class="controls">
+          <button class="btn end-session" id="end-hardware-session" title="E-stop, stop deploy jobs, and close the YAM-ABC-Reproduce GUI service. Requires restarting yam-abc-gui.">End Session</button>
+        </div>
+      </div>
+      <div class="field">
+        <span class="cap">&nbsp;</span>
+        <div class="controls"><button class="estop" id="estop">E-STOP</button></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- REVIEW: post-collection sanity check (video + synced action curves) -->
+  <div class="panel" data-panel="review">
+    <div class="review">
+      <aside class="ep-list">
+        <div class="rail-head"><h2>Episodes</h2><button class="btn ghost" id="rv-refresh">Refresh</button></div>
+        <div class="ep-filters">
+          <select id="rv-source"><option value="">all</option><option value="dataset">dataset</option><option value="rollout">rollout</option></select>
+          <select id="rv-task"><option value="">all tasks</option></select>
+        </div>
+        <div id="rv-list"></div>
+      </aside>
+      <div class="ep-view">
+        <div class="ep-head" id="rv-head">Select an episode to review</div>
+        <div class="ep-videos" id="rv-videos"></div>
+        <div class="ep-bar">
+          <button class="btn" id="rv-play">Play</button>
+          <input type="range" id="rv-scrub" min="0" max="0" value="0" step="1" />
+          <span class="tnum" id="rv-frame">0 / 0</span>
+          <select id="rv-arm"></select>
+        </div>
+        <canvas id="rv-plot" height="260"></canvas>
+        <div class="ep-flags" id="rv-flags"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TRAIN -->
+  <div class="panel" data-panel="train">
+    <section class="ft-sec">
+      <div class="sec-head sec-convert">Convert dataset</div>
+      <div class="jobrow">
+        <label class="fld"><span>task</span>
+          <input id="cv-task" placeholder="task (folder under data/episodes)" size="26" /></label>
+        <label class="fld"><span>format</span>
+          <select id="cv-fmt" title="lerobot: pi0/pi0.5/molmoact2 · abc: ABC-DiT">
+            <option value="lerobot">lerobot</option>
+            <option value="abc">abc</option>
+          </select></label>
+        <label class="fld"><span>repo-id</span>
+          <input id="cv-repo" placeholder="dataset repo-id (default: task name)" size="24" /></label>
+        <button class="btn" id="btn-convert" title="Run yam-abc-convert on data/episodes/<task> — no terminal needed">Convert</button>
+      </div>
+    </section>
+    <section class="ft-sec">
+      <div class="sec-head sec-train">Train policy</div>
+      <div class="jobrow">
+        <label class="fld"><span>policy</span>
+          <select id="ft-backend">
+            <option value="pi0">pi0</option>
+            <option value="pi05">pi0.5</option>
+            <option value="molmoact2">molmoact2</option>
+            <option value="abc">abc</option>
+          </select></label>
+        <!-- fields for the selected policy are rendered here from /api/train/fields -->
+        <span id="ft-fields" class="ft-fields"></span>
+        <button class="btn primary" id="btn-train">Launch Train</button>
+      </div>
+      <!-- backend prerequisite from /api/train/fields (abc's cache build); hidden when empty -->
+      <p id="ft-note" class="ft-note" hidden></p>
+    </section>
+    <div class="train-head">
+      <span class="status-pill" id="ft-status">no job</span>
+      <span class="tnum" id="ft-progress"></span>
+      <div class="progbar"><span id="ft-progfill"></span></div>
+      <code id="ft-cmd" class="cmd"></code>
+    </div>
+    <canvas id="ft-plot" height="220"></canvas>
+    <pre id="ft-logs" class="logs"></pre>
+  </div>
+
+  <!-- DEPLOY -->
+  <div class="panel" data-panel="deploy">
+    <section class="ft-sec">
+      <div class="sec-head sec-row"><span>Server</span>
+        <button class="estop" id="dp-estop">E-STOP</button></div>
+      <div class="jobrow">
+      <label class="fld"><span>policy</span>
+        <select id="dp-backend">
+          <option value="pi0">pi0</option>
+          <option value="pi05">pi0.5</option>
+          <option value="molmoact2">molmoact2</option>
+          <option value="abc">abc</option>
+        </select></label>
+      <label class="fld"><span>checkpoint</span>
+        <input id="dp-ckpt" list="dp-ckpt-list" placeholder="ckpt path — pick from dropdown or type" size="42" /></label>
+      <datalist id="dp-ckpt-list"></datalist>
+      <label class="fld"><span>config (pi0 / pi0.5)</span>
+        <input id="dp-config" placeholder="e.g. pi0_yam_lora" value="pi0_yam_lora" size="14" /></label>
+      <span class="status-pill" id="srv-badge" style="color:#fff;background:#57606a">server: ?</span>
+      <button class="btn primary" id="btn-serve">Start Server</button>
+      <button class="btn" id="btn-serve-stop">Stop Server</button>
+      </div>
+    </section>
+    <section class="ft-sec">
+      <div class="sec-head">Client</div>
+      <div class="jobrow">
+      <label class="fld"><span>server host</span>
+        <input id="dp-host" placeholder="host / IP" value="127.0.0.1" size="13" /></label>
+      <label class="fld"><span>port</span>
+        <input id="dp-port" placeholder="port" value="8000" size="6" /></label>
+      <label class="fld"><span>task instruction</span>
+        <input id="dp-prompt" placeholder="what the robot should do" size="26" /></label>
+      <button class="btn primary" id="btn-deploy">Load &amp; Run</button>
+      <button class="btn" id="btn-deploy-stop">Stop</button>
+    </div>
+    <div class="jobrow">
+      <label class="chk"><input type="checkbox" id="dp-record" checked /> record rollout</label>
+      <label class="chk"><input type="checkbox" id="dp-rtc" /> RTC (abc)</label>
+      <label class="fld"><span>rollout save path</span>
+        <input id="dp-save" placeholder="data/rollouts/&lt;name&gt;" value="data/rollouts/pi0" size="24" /></label>
+      <label class="fld" title="Ramp the arms here before the policy takes over, so its first observation is in-distribution. Pre-filled from `deploy_home_pose` in the station YAML; clear it to skip homing."><span>home pose (optional)</span>
+        <input id="dp-home" placeholder="14 comma-separated joints" size="38" /></label>
+      <label class="fld" title="Safety: cap each arm joint to this speed in rad/s (truncate + warn). Control-rate invariant. 0 disables."><span>clamp rad/s</span>
+        <input id="dp-clamp" type="number" step="0.1" min="0" value="1.5" style="width:5em" /></label>
+    </div>
+    </section>
+    <div class="hint">Same machine: Start Server → wait for "serving" in the log → Load &amp; Run (host 127.0.0.1). Remote GPU box: start the server there, set host to its IP → Load &amp; Run.</div>
+    <div class="status-pill" id="dp-status">no job</div>
+    <pre id="dp-logs" class="logs"></pre>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
